@@ -90,6 +90,13 @@ typings/
 
 # Electron-Forge
 out/
+out-*/
+
+# Local Better Lyrics working checkout and generated files
+/vendor/better-lyrics/
+/vendor/better-lyrics-source/node_modules/
+/vendor/better-lyrics-source/dist/
+/vendor/better-lyrics-source/tsconfig.tsbuildinfo
 
 # Contributors Export
 scripts/CONTRIBUTORS.md
