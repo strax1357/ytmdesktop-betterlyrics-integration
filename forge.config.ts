@@ -17,6 +17,7 @@ for (let i = 0; i < process.argv.length; i++) {
 }
 
 const config: ForgeConfig = {
+  outDir: process.env.YTMD_BUILD_OUT_DIR ?? "out",
   packagerConfig: {
     executableName: "youtube-music-desktop-app",
     icon: "./src/assets/icons/ytmd",
@@ -31,7 +32,9 @@ const config: ForgeConfig = {
       "./src/assets/icons/controls/pause-button.png",
       "./src/assets/icons/controls/play-button.png",
       "./src/assets/icons/controls/play-next-button.png",
-      "./src/assets/icons/controls/play-previous-button.png"
+      "./src/assets/icons/controls/play-previous-button.png",
+
+      "./vendor/better-lyrics-desktop"
     ],
     protocols: [
       {

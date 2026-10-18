@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld("ytmd", {
   maximizeWindow: () => ipcRenderer.send("settingsWindow:maximize"),
   restoreWindow: () => ipcRenderer.send("settingsWindow:restore"),
   closeWindow: () => ipcRenderer.send("settingsWindow:close"),
+  openBetterLyricsSettings: () => ipcRenderer.send("settingsWindow:openBetterLyrics"),
   handleWindowEvents: (callback: (event: Electron.IpcRendererEvent, args: WindowsEventArguments) => void) =>
     ipcRenderer.on("settingsWindow:stateChanged", callback),
   getAppVersion: async (): Promise<string> => await ipcRenderer.invoke("app:getVersion"),

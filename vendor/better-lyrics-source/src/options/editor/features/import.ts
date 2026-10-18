@@ -1,0 +1,147 @@
+import { saveCustomCss } from "@core/customCss";
+import { t } from "@core/i18n";
+import { editorStateManager } from "../core/state";
+import { broadcastRICSToTabs } from "@/options/editor/features/storage";
+import { hideThemeName, updateThemeSelectorButton } from "./themes";
+import { errorEditor, logEditor } from "@core/logger";
+import { toast } from "@/ui/toast";
+
+export const generateDefaultFilename = (): string => {
+  const date = new Date();
+  const timestamp = date.toISOString().replace(/[:.]/g, "-").slice(0, -5);
+  return `blyrics-theme-${timestamp}.rics`;
+};
+
+export const saveCSSToFile = (css: string, defaultFilename: string): void => {
+  chrome.permissions.contains({ permissions: ["downloads"] }, hasPermission => {
+    if (hasPermission) {
+      downloadFile(css, defaultFilename);
+    } else {
+      chrome.permissions.request({ permissions: ["downloads"] }, granted => {
+        if (granted) {
+          downloadFile(css, defaultFilename);
+        } else {
+          fallbackSaveMethod(css, defaultFilename);
+        }
+      });
+    }
+  });
+};
+
+const downloadFile = (content: string, defaultFilename: string): void => {
+  const blob = new Blob([content], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+
+  if (chrome.downloads) {
+    chrome.downloads
+      .download({
+        url: url,
+        filename: defaultFilename,
+        saveAs: true,
+      })
+      .then(() => {
+        toast.info(t("editor_alert_saveDialogOpened"));
+        URL.revokeObjectURL(url);
+      })
+      .catch(error => {
+        errorEditor("Theme file save failed:", error);
+        toast.error(t("options_alert_fileSaveFailed"));
+        URL.revokeObjectURL(url);
+      });
+  } else {
+    fallbackSaveMethod(content, defaultFilename);
+  }
+};
+
+const fallbackSaveMethod = (content: string, defaultFilename: string): void => {
+  const blob = new Blob([content], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = defaultFilename;
+
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  setTimeout(() => URL.revokeObjectURL(url), 100);
+
+  toast.success(t("editor_alert_downloadStarted"));
+};
+
+class ImportManager {
+  async importCSSFile(file: File): Promise<void> {
+    logEditor(` Starting import of file: ${file.name}`);
+
+    try {
+      const css = await this.readFileContent(file);
+      logEditor(` File read successfully: ${css.length} bytes`);
+
+      await this.performImport(css, file.name);
+    } catch (error) {
+      errorEditor("Import failed:", error);
+      toast.error(t("editor_alert_importFailed"));
+      throw error;
+    }
+  }
+
+  private async readFileContent(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onload = event => {
+        const content = event.target?.result;
+        if (typeof content === "string") {
+          resolve(content);
+        } else {
+          reject(new Error("Failed to read file as text"));
+        }
+      };
+
+      reader.onerror = () => {
+        reject(new Error("File reading failed"));
+      };
+
+      reader.readAsText(file);
+    });
+  }
+
+  private async performImport(css: string, filename: string): Promise<void> {
+    logEditor(` Performing import operation`);
+
+    await editorStateManager.queueOperation("import", async () => {
+      logEditor(` Step 1: Clearing theme state`);
+      await editorStateManager.clearThemeState();
+      hideThemeName();
+      updateThemeSelectorButton();
+
+      logEditor(` Step 2: Incrementing save count`);
+      editorStateManager.incrementSaveCount();
+      editorStateManager.setIsSaving(true);
+
+      try {
+        logEditor(` Step 3: Setting editor content`);
+        await editorStateManager.setEditorContent(css, `file-import:${filename}`, false);
+
+        logEditor(` Step 4: Saving to storage`);
+        const result = await saveCustomCss(css);
+
+        if (!result.success || !result.strategy) {
+          throw new Error(`Storage save failed: ${result.error?.message || "Unknown error"}`);
+        }
+
+        logEditor(` Step 5: Sending update message`);
+        await broadcastRICSToTabs(css, result.strategy);
+
+        logEditor(` Import completed successfully`);
+        toast.success(t("editor_alert_imported", filename));
+      } finally {
+        editorStateManager.setIsSaving(false);
+        editorStateManager.resetSaveCount();
+      }
+    });
+  }
+}
+
+export const importManager = new ImportManager();

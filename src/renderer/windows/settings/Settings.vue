@@ -223,6 +223,10 @@ function changeTab(newTab: number) {
   currentTab.value = newTab;
 }
 
+function openBetterLyricsSettings() {
+  window.ytmd.openBetterLyricsSettings();
+}
+
 function restartApplication() {
   window.ytmd.restartApplication();
 }
@@ -341,6 +345,13 @@ window.ytmd.handleUpdateDownloaded(() => {
         </div>
 
         <div v-if="currentTab === 4" class="integrations-tab">
+          <YTMDSetting
+            type="custom"
+            name="Better Lyrics translation"
+            description="Choose the target language for translated lyrics"
+          >
+            <button @click="openBetterLyricsSettings">Translation settings</button>
+          </YTMDSetting>
           <YTMDSetting
             v-model="companionServerEnabled"
             type="checkbox"

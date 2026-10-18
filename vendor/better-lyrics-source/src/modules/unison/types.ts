@@ -1,0 +1,279 @@
+// -- API Response Types --------------------------
+
+export interface Mark {
+  type: string;
+  label: string;
+  icon: string;
+  by?: { keyId: string; displayName: string; tier?: string | null };
+  at?: number;
+}
+
+export interface UnisonSubmitter {
+  keyId: string;
+  reputation: number;
+  displayName: string;
+  tier?: string | null;
+  level?: number;
+  avatarUrl?: string | null;
+}
+
+export type UnisonActor = Omit<UnisonSubmitter, "reputation">;
+
+export interface UnisonFulfillment {
+  demand: number;
+  requestCount: number;
+  fulfilledAt: number;
+}
+
+export interface UnisonLyricsEntry {
+  id: number;
+  videoId: string;
+  song: string;
+  artist: string;
+  album?: string;
+  isrc?: string;
+  lyrics: string;
+  format: UnisonFormat;
+  language?: string;
+  syncType: UnisonSyncType;
+  score: number;
+  effectiveScore: number;
+  voteCount: number;
+  confidence: UnisonConfidence;
+  submitter?: UnisonSubmitter;
+  fulfilled?: UnisonFulfillment;
+  marks?: Mark[];
+  userVote?: 1 | -1 | null;
+  revision?: LyricRevisionState;
+}
+
+export interface UnisonSearchEntry {
+  id: number;
+  videoId: string;
+  song: string;
+  artist: string;
+  album?: string;
+  isrc?: string;
+  duration: number;
+  format: UnisonFormat;
+  language?: string;
+  syncType: UnisonSyncType;
+  score: number;
+  effectiveScore: number;
+  voteCount: number;
+  confidence: UnisonConfidence;
+  matchScore: number;
+  submitter?: UnisonActor;
+}
+
+export interface UnisonFeedEntry {
+  id: number;
+  videoId: string;
+  song: string;
+  artist: string;
+  album?: string;
+  isrc?: string;
+  duration: number;
+  format: UnisonFormat;
+  language?: string;
+  syncType: UnisonSyncType;
+  score: number;
+  effectiveScore: number;
+  voteCount: number;
+  confidence: UnisonConfidence;
+  createdAt: number;
+  marks?: Mark[];
+  userVote?: 1 | -1 | null;
+  submitter?: UnisonActor;
+}
+
+export interface LinkedVideo {
+  videoId: string;
+  isPrimary: boolean;
+}
+
+export type SuggestedVideoMatchLevel = "same" | "related" | "different";
+
+export interface SuggestedVideo {
+  videoId: string;
+  title: string;
+  artist: string;
+  album?: string;
+  videoType: "song" | "video";
+  durationSeconds: number;
+  matchScore: number;
+  match?: { level: SuggestedVideoMatchLevel; score: number } | null;
+}
+
+export interface UnisonApiResponse<T> {
+  success: boolean;
+  data: T;
+  error?: string;
+}
+
+// -- Submission Types --------------------------
+
+export interface UnisonSubmission {
+  videoId: string;
+  song: string;
+  artist: string;
+  duration: number;
+  lyrics: string;
+  format: UnisonFormat;
+  album?: string;
+  isrc?: string;
+  language?: string;
+  syncType?: UnisonSyncType;
+}
+
+// -- Vote Types --------------------------
+
+export type VoteValue = 1 | -1;
+
+// -- Report Types --------------------------
+
+export type ReportReason = "wrong_song" | "bad_sync" | "offensive" | "spam" | "other";
+
+// -- Enums --------------------------
+
+export type UnisonFormat = "lrc" | "ttml" | "plain";
+export type UnisonSyncType = "richsync" | "linesync" | "plain";
+export type UnisonConfidence = "low" | "medium" | "high";
+
+// -- Feed Filters --------------------------
+
+export type FeedSort = "default" | "newest" | "top-rated" | "most-voted";
+export type FeedSortDir = "desc" | "asc";
+export type FeedTierFilter = "all" | "trusted-plus" | "top-rated";
+
+export interface FeedFilters {
+  sort: FeedSort;
+  sortDir: FeedSortDir;
+  syncType: "all" | UnisonSyncType;
+  tier: FeedTierFilter;
+  format: "all" | UnisonFormat;
+  language: string;
+}
+
+export const DEFAULT_FEED_FILTERS: FeedFilters = {
+  sort: "default",
+  sortDir: "desc",
+  syncType: "all",
+  tier: "all",
+  format: "all",
+  language: "all",
+};
+
+// -- Request Types --------------------------
+
+export interface UnisonLyricsRequest {
+  videoId: string;
+  song: string;
+  artist: string;
+  thumbnailUrl: string;
+}
+
+export type UnisonRequestSuccess =
+  | { status: "created" | "already_requested"; requestCount: number; demand?: number }
+  | { status: "already_available" };
+
+// -- Revision Types --------------------------
+
+export type RevisionStatus = "live" | "past" | "pending" | "superseded" | "rejected" | "withdrawn";
+export type PendingReason = "sealed" | "flagged" | "large_text_drift" | "large_timing_drift";
+
+interface LyricRevisionState {
+  revNo: number;
+  count: number;
+  pending: { revNo: number; pendingReason: PendingReason; textDrift: number; timingDrift: number } | null;
+  lastRejected: { revNo: number; reviewNote: string | null } | null;
+  updatedAt: number;
+}
+
+export interface RevisionSummary {
+  id: number;
+  revNo: number;
+  status: RevisionStatus;
+  pendingReason: PendingReason | null;
+  isAnchor: boolean;
+  textDrift: number;
+  timingDrift: number;
+  revertsRevNo: number | null;
+  author: { displayName: string } | null;
+  reviewNote: string | null;
+  createdAt: number;
+  reviewedAt: number | null;
+}
+
+export interface RevisionContent extends RevisionSummary {
+  lyrics: string;
+  format: UnisonFormat;
+  language: string | null;
+  isrc: string | null;
+  album: string | null;
+}
+
+export type RevisionDraft = {
+  lyrics: string;
+  format: UnisonFormat;
+  language?: string | null;
+  isrc?: string | null;
+  album?: string | null;
+};
+
+export interface FieldCheck {
+  field: "lyrics" | "language" | "isrc" | "album";
+  status: "ok" | "warn" | "bad";
+  message: string;
+  line?: number;
+}
+
+export interface PreviewResult {
+  checks: FieldCheck[];
+  drift: {
+    text: number;
+    timing: number;
+    timingOffsetMs: number;
+    textLimit: number;
+    timingLimit: number;
+    anchorRevNo?: number | null;
+  };
+  outcome: { goesLive: boolean; reason: PendingReason | null };
+  noChanges: boolean;
+  rateLimit: { lyricRemaining: number; lyricLimit: number; userRemaining: number; userLimit: number };
+  diff?: RevisionDiff;
+}
+
+export interface DiffHead {
+  kind: "translation" | "transliteration" | "credit";
+  lang: string | null;
+  line: number | null;
+}
+
+export interface SyllableChange {
+  before: string | null;
+  after: string | null;
+  moved: number;
+}
+
+export type DiffRow =
+  | { kind: "same"; lineNo: number; startMs: number | null; text: string; head?: DiffHead }
+  | { kind: "add"; lineNo: number; startMs: number | null; text: string; head?: DiffHead }
+  | { kind: "del"; lineNo: number; startMs: number | null; text: string; head?: DiffHead }
+  | { kind: "word"; lineNo: number; startMs: number | null; parts: Array<["=" | "+" | "-", string]>; head?: DiffHead }
+  | {
+      kind: "timing";
+      lineNo: number;
+      startMs: number;
+      deltaMs: number;
+      text: string;
+      syllables?: SyllableChange;
+    }
+  | ({ kind: "syllable"; lineNo: number; startMs: number | null; text: string } & SyllableChange)
+  | { kind: "gap"; count: number; section?: "head" }
+  | { kind: "field"; field: "language" | "isrc" | "album"; before: string | null; after: string | null };
+
+export interface RevisionDiff {
+  rows: DiffRow[];
+  againstRevNo: number | null;
+}

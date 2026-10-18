@@ -169,6 +169,81 @@ const nowPlayingNotifications = new NowPlayingNotifications();
 const ratioVolume = new VolumeRatio();
 
 const ytmViewIntegrationScripts: { [name: string]: { [name: string]: string } } = {};
+let betterLyricsExtensionId: string | null = null;
+let betterLyricsSettingsWindow: BrowserWindow | null = null;
+let betterLyricsUnisonWindow: BrowserWindow | null = null;
+
+const openBetterLyricsSettingsWindow = (parent?: BrowserWindow): void => {
+  if (!betterLyricsExtensionId) return;
+  if (betterLyricsSettingsWindow && !betterLyricsSettingsWindow.isDestroyed()) {
+    betterLyricsSettingsWindow.focus();
+    return;
+  }
+  const ytmSession = session.fromPartition(app.isPackaged ? "persist:ytmview" : "persist:ytmview-dev");
+  const safeParent = parent && !parent.isDestroyed() ? parent : undefined;
+  betterLyricsSettingsWindow = new BrowserWindow({
+    width: 520,
+    height: 420,
+    minWidth: 440,
+    minHeight: 360,
+    ...(safeParent ? { parent: safeParent, modal: safeParent === settingsWindow && !isDarwin } : {}),
+    show: false,
+    title: "Better Lyrics",
+    backgroundColor: "#181818",
+    webPreferences: { session: ytmSession, sandbox: true, contextIsolation: true, devTools: store.get("developer.enableDevTools") }
+  });
+  betterLyricsSettingsWindow.webContents.setWindowOpenHandler(details => {
+    openExternalFromYtmView(details.url);
+    return { action: "deny" };
+  });
+  betterLyricsSettingsWindow.once("ready-to-show", () => betterLyricsSettingsWindow?.show());
+  betterLyricsSettingsWindow.once("closed", () => { betterLyricsSettingsWindow = null; });
+  void betterLyricsSettingsWindow.loadURL(`chrome-extension://${betterLyricsExtensionId}/desktop-settings.html`);
+};
+
+const openBetterLyricsUnisonWindow = (url: string): void => {
+  if (!betterLyricsExtensionId || betterLyricsUnisonWindow && !betterLyricsUnisonWindow.isDestroyed()) {
+    betterLyricsUnisonWindow?.focus();
+    return;
+  }
+  const parsedUrl = new URL(url);
+  if (parsedUrl.protocol !== "chrome-extension:" || parsedUrl.hostname !== betterLyricsExtensionId || parsedUrl.pathname !== "/pages/unison.html") return;
+  const ytmSession = session.fromPartition(app.isPackaged ? "persist:ytmview" : "persist:ytmview-dev");
+  betterLyricsUnisonWindow = new BrowserWindow({
+    width: 1040,
+    height: 780,
+    minWidth: 720,
+    minHeight: 560,
+    ...(mainWindow && !mainWindow.isDestroyed() ? { parent: mainWindow } : {}),
+    show: false,
+    title: "Submit lyrics · Better Lyrics",
+    backgroundColor: "#181818",
+    webPreferences: { session: ytmSession, sandbox: true, contextIsolation: true, devTools: store.get("developer.enableDevTools") }
+  });
+  betterLyricsUnisonWindow.webContents.setWindowOpenHandler(details => {
+    openExternalFromYtmView(details.url);
+    return { action: "deny" };
+  });
+  betterLyricsUnisonWindow.once("ready-to-show", () => betterLyricsUnisonWindow?.show());
+  betterLyricsUnisonWindow.once("closed", () => { betterLyricsUnisonWindow = null; });
+  void betterLyricsUnisonWindow.loadURL(parsedUrl.href);
+};
+
+const loadBetterLyricsExtension = async (): Promise<void> => {
+  const extensionPath = app.isPackaged
+    ? path.join(process.resourcesPath, "better-lyrics-desktop")
+    : path.join(app.getAppPath(), "vendor", "better-lyrics-desktop");
+  const ytmSession = session.fromPartition(app.isPackaged ? "persist:ytmview" : "persist:ytmview-dev");
+
+  try {
+    const extension = await ytmSession.extensions.loadExtension(extensionPath);
+    betterLyricsExtensionId = extension.id;
+    log.info(`Loaded Better Lyrics extension ${extension.name} (${extension.version})`);
+  } catch (error) {
+    log.error("Failed to load Better Lyrics extension", error);
+  }
+
+};
 
 let mainWindow: BrowserWindow = null;
 let settingsWindow: BrowserWindow = null;
@@ -905,12 +980,11 @@ function sendSettingsWindowStateIpc() {
 
 // Handles any navigation or window opening from ytmView
 function openExternalFromYtmView(urlString: string) {
-  const url = new URL(urlString);
-  const domainSplit = url.hostname.split(".");
-  domainSplit.reverse();
-  const domain = `${domainSplit[1]}.${domainSplit[0]}`;
-  if (domain === "google.com" || domain === "youtube.com") {
-    shell.openExternal(urlString);
+  try {
+    const url = new URL(urlString);
+    if (url.protocol === "https:") void shell.openExternal(url.href);
+  } catch (error) {
+    log.warn("Blocked invalid external URL from YouTube Music", error);
   }
 }
 
@@ -1146,6 +1220,21 @@ const createYTMView = (): void => {
   });
 
   ytmView.webContents.setWindowOpenHandler(details => {
+    if (betterLyricsExtensionId) {
+      try {
+        const url = new URL(details.url);
+        if (
+          url.protocol === "chrome-extension:" &&
+          url.hostname === betterLyricsExtensionId &&
+          url.pathname === "/pages/unison.html"
+        ) {
+          openBetterLyricsUnisonWindow(url.href);
+          return { action: "deny" };
+        }
+      } catch {
+        // Invalid and non-HTTPS links are denied below.
+      }
+    }
     openExternalFromYtmView(details.url);
 
     return {
@@ -1331,6 +1420,9 @@ const createMainWindow = (): void => {
 // Some APIs can only be used after this event occurs.
 app.on("ready", async () => {
   log.info("Application ready");
+
+  // Load before creating the YouTube Music view so its document-start scripts are active.
+  await loadBetterLyricsExtension();
 
   // First run checks
   const firstRunPath = path.join(app.getPath("userData"), ".first-run");
@@ -1529,6 +1621,11 @@ app.on("ready", async () => {
     createOrShowSettingsWindow();
   });
 
+  ipcMain.on("settingsWindow:openBetterLyrics", event => {
+    if (event.sender !== settingsWindow?.webContents || !betterLyricsExtensionId) return;
+    openBetterLyricsSettingsWindow(settingsWindow);
+  });
+
   ipcMain.on("settingsWindow:minimize", event => {
     if (settingsWindow !== null) {
       if (event.sender !== settingsWindow.webContents) return;
@@ -1569,6 +1666,11 @@ app.on("ready", async () => {
   });
 
   // Handle ytm view ipc
+  ipcMain.on("ytmView:openBetterLyricsSettings", event => {
+    if (event.sender !== ytmView?.webContents) return;
+    openBetterLyricsSettingsWindow(mainWindow ?? undefined);
+  });
+
   ipcMain.on("ytmView:loaded", event => {
     if (ytmView !== null && mainWindow !== null) {
       if (event.sender !== ytmView.webContents) return;

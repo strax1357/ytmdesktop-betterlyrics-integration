@@ -1,0 +1,152 @@
+import { INITIALIZE_LOG } from "@constants";
+import { AppState } from "@core/appState";
+import { injectI18nCssVars, loadLocaleOverride, subscribeToLocaleChanges } from "@core/i18n";
+import { purgeExpiredKeys, saveCacheInfo } from "@core/storage";
+import { prewarmAuthenticationToken } from "@modules/lyrics/providers/unified";
+import { initProviders } from "@modules/lyrics/providers/shared";
+import { disposeKaraoke, syncKaraoke } from "@modules/karaoke/karaokeView";
+import { loadKaraokeSettings } from "@modules/karaoke/settings";
+import { setupRequestSniffer } from "@modules/lyrics/requestSniffer/requestSniffer";
+import {
+  handleSettings,
+  hideCursorOnIdle,
+  hideDockOnIdleInFullscreen,
+  listenForPopupMessages,
+  loadDockSettings,
+  loadEndTimeModeSetting,
+  loadLyricOffsetSettings,
+  loadPassiveScrollSetting,
+  loadTranslationSettings,
+  onAlbumArtEnabled,
+} from "@modules/settings/settings";
+import {
+  cleanup as cleanupLyrics,
+  injectHeadTags,
+  observeLyricsPageType,
+  reloadAlbumArt,
+  setupAdObserver,
+  setupFullscreenPlayerBarReveal,
+  unmountDock,
+} from "@modules/ui/dom";
+import {
+  disableInertWhenFullscreen,
+  enableLyricsTab,
+  initializeLyrics,
+  lyricReloader,
+  onFullscreenChange,
+  setUpVideoModeListener,
+  setupAltHoverHandler,
+  setupHomepageFullscreenHandler,
+  setupWakeLockForFullscreen,
+} from "@modules/ui/observer";
+import {
+  disposePictureInPictureBrowserController,
+  initializePictureInPictureAutoRestore,
+  mirrorNativeMiniPlayerButton,
+  publishPictureInPictureResources,
+} from "@modules/ui/pictureInPicture/browserController";
+import { subscribeToCustomStyles } from "@modules/ui/styleInjector";
+import { applyLoggingSetting } from "@modules/settings/settings";
+import { logCore, logError } from "@core/logger";
+import { startVideoQualitySettingsBridge } from "@modules/settings/videoQualityBridge";
+
+/**
+ * Initializes the BetterLyrics extension by setting up all required components.
+ * This method orchestrates the setup of logging, DOM injection, observers, settings,
+ * storage, and lyric providers.
+ */
+async function modify(isDisposed: () => boolean): Promise<void> {
+  applyLoggingSetting();
+  await injectHeadTags();
+  if (isDisposed()) return;
+  await loadLocaleOverride();
+  if (isDisposed()) return;
+  injectI18nCssVars();
+  subscribeToLocaleChanges(publishPictureInPictureResources);
+  publishPictureInPictureResources();
+  setupAdObserver();
+  enableLyricsTab();
+  observeLyricsPageType();
+  setupHomepageFullscreenHandler();
+  hideCursorOnIdle();
+  handleSettings();
+  setupWakeLockForFullscreen();
+  loadTranslationSettings();
+  loadEndTimeModeSetting();
+  loadLyricOffsetSettings();
+  loadPassiveScrollSetting();
+  loadKaraokeSettings(syncKaraoke);
+  onFullscreenChange(syncKaraoke, syncKaraoke);
+  loadDockSettings(hideDockOnIdleInFullscreen);
+  subscribeToCustomStyles();
+  await purgeExpiredKeys();
+  await saveCacheInfo().catch(error => logError("Failed to save cache info:", error));
+  listenForPopupMessages();
+  lyricReloader();
+  initializeLyrics();
+  disableInertWhenFullscreen();
+  setupAltHoverHandler();
+  initProviders();
+  prewarmAuthenticationToken();
+  setUpVideoModeListener();
+  logCore(
+    INITIALIZE_LOG,
+    "background: rgba(10,11,12,1) ; color: rgba(214, 250, 214,1) ; padding: 0.5rem 0.75rem; border-radius: 0.5rem; font-size: 1rem; "
+  );
+
+  onAlbumArtEnabled(
+    () => {
+      AppState.shouldInjectAlbumArt = true;
+      reloadAlbumArt();
+    },
+    () => {
+      AppState.shouldInjectAlbumArt = false;
+      reloadAlbumArt();
+    }
+  );
+}
+
+/**
+ * Initializes the application by setting up the DOM content loaded event listener.
+ * Entry point for the BetterLyrics extension.
+ */
+function init(): () => void {
+  const cleanupVideoQualitySettings = startVideoQualitySettingsBridge();
+  let disposed = false;
+  let modifyStarted = false;
+  const runModify = (): void => {
+    if (modifyStarted || disposed) return;
+    modifyStarted = true;
+    void modify(() => disposed);
+  };
+
+  initializePictureInPictureAutoRestore();
+  mirrorNativeMiniPlayerButton();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", runModify, { once: true });
+  } else {
+    runModify();
+  }
+
+  const cleanupRequestSniffer = setupRequestSniffer();
+  const cleanupPlayerBarReveal = setupFullscreenPlayerBarReveal();
+  return () => {
+    disposed = true;
+    cleanupVideoQualitySettings();
+    document.removeEventListener("DOMContentLoaded", runModify);
+    cleanupRequestSniffer();
+    disposePictureInPictureBrowserController();
+    if (document.querySelector('[data-extension-root="true"]')) cleanupLyrics();
+    unmountDock();
+    cleanupPlayerBarReveal();
+    disposeKaraoke();
+  };
+}
+
+/**
+ * Extension.js content-script entrypoint. The framework invokes this function
+ * and runs the returned cleanup before reinjecting an updated build.
+ */
+export default function initializeBetterLyrics(): () => void {
+  return init();
+}

@@ -20,6 +20,8 @@ import toggleDislikeScript from "./scripts/toggledislike.script?raw";
 
 const store = new Store<StoreSchema>();
 
+document.addEventListener("ytmd-betterlyrics-settings", () => ipcRenderer.send("ytmView:openBetterLyricsSettings"));
+
 contextBridge.exposeInMainWorld("ytmd", {
   sendVideoProgress: (volume: number) => ipcRenderer.send("ytmView:videoProgressChanged", volume),
   sendVideoState: (state: number) => ipcRenderer.send("ytmView:videoStateChanged", state),
