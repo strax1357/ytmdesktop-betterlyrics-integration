@@ -1,8 +1,13 @@
 {
-  "name": "youtube-music-desktop-app",
-  "productName": "YouTube Music Desktop App",
-  "version": "2.0.12",
-  "description": "YouTube Music Desktop App",
+  "name": "ytmdesktop-betterlyrics",
+  "productName": "YTMD Better Lyrics (Community Fork)",
+  "version": "2.0.13",
+  "description": "Unofficial community fork of YouTube Music Desktop App with Better Lyrics integration",
+  "homepage": "https://github.com/strax1357/ytmdesktop-betterlyrics-integration",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/strax1357/ytmdesktop-betterlyrics-integration.git"
+  },
   "main": ".vite/main/index.js",
   "private": true,
   "scripts": {
@@ -20,8 +25,8 @@
   },
   "keywords": [],
   "author": {
-    "name": "NovusTheory",
-    "email": "novustheory@gmail.com"
+    "name": "Strax1357",
+    "url": "https://github.com/strax1357"
   },
   "license": "GPL-3.0-only",
   "devDependencies": {

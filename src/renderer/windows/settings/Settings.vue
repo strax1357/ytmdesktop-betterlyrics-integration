@@ -532,8 +532,8 @@ window.ytmd.handleUpdateDownloaded(() => {
 
         <div v-if="currentTab === 99" class="about-tab">
           <img class="icon" :src="logo" />
-          <h2 class="app-name">YouTube Music Desktop App</h2>
-          <p class="made-by">Made by YTMDesktop Team</p>
+          <h2 class="app-name">YTMD Better Lyrics (Community Fork)</h2>
+          <p class="made-by">Community fork by Strax1357 · based on the YTMDesktop Team's work</p>
           <template v-if="!autoUpdaterDisabled">
             <button
               v-if="!updateDownloaded"
@@ -564,7 +564,7 @@ window.ytmd.handleUpdateDownloaded(() => {
             <p class="commit">Commit: {{ ytmdCommitHash }}</p>
           </span>
           <div class="links">
-            <a href="https://github.com/ytmdesktop/ytmdesktop" target="_blank">GitHub</a>
+            <a href="https://github.com/strax1357/ytmdesktop-betterlyrics-integration" target="_blank">GitHub</a>
             <a href="https://ytmdesktop.github.io/" target="_blank">Website</a>
           </div>
         </div>
