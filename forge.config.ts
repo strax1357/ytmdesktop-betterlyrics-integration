@@ -56,6 +56,7 @@ const config: ForgeConfig = {
     new MakerZIP({}, ["darwin"]),
     new MakerRpm({
       options: {
+        bin: "ytmd-betterlyrics",
         categories: ["AudioVideo", "Audio"],
         mimeType: ["x-scheme-handler/ytmd"],
         icon: "./src/assets/icons/ytmd.png"
@@ -63,6 +64,7 @@ const config: ForgeConfig = {
     }),
     new MakerDeb({
       options: {
+        bin: "ytmd-betterlyrics",
         categories: ["AudioVideo", "Audio"],
         mimeType: ["x-scheme-handler/ytmd"],
         section: "sound",
