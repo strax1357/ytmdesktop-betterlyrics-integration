@@ -18,11 +18,13 @@ import {
   shell,
   Tray
 } from "electron";
+import { execFile } from "node:child_process";
 import Conf from "conf";
 import log from "electron-log";
 import path from "path";
 import fs from "fs/promises";
 import electronSquirrelStartup from "electron-squirrel-startup";
+import { promisify } from "node:util";
 
 import MemoryStore from "./memory-store";
 import playerStateStore, { PlayerState, VideoState } from "./player-state-store";
@@ -46,6 +48,134 @@ declare const YTMD_UPDATE_FEED_REPOSITORY: string;
 
 const assetFolder = path.join(process.env.NODE_ENV === "development" ? path.join(app.getAppPath(), "src/assets") : process.resourcesPath);
 const isDarwin = process.platform === "darwin";
+const execFileAsync = promisify(execFile);
+
+const pathExists = async (filePath: string): Promise<boolean> => {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const isOriginalAppRunning = async (): Promise<boolean | null> => {
+  let command: string;
+  let args: string[];
+
+  if (process.platform === "win32") {
+    command = "tasklist";
+    args = ["/FI", "IMAGENAME eq youtube-music-desktop-app.exe", "/FO", "CSV", "/NH"];
+  } else if (process.platform === "darwin") {
+    command = "pgrep";
+    args = ["-f", "YouTube Music Desktop App"];
+  } else {
+    command = "pgrep";
+    args = ["-f", "youtube-music-desktop-app"];
+  }
+
+  try {
+    const { stdout } = await execFileAsync(command, args, { windowsHide: true });
+    return process.platform === "win32" ? /youtube-music-desktop-app\.exe/i.test(stdout) : stdout.trim().length > 0;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 1) return false;
+    log.warn("Could not check whether the original app is running", error);
+    return null;
+  }
+};
+
+/**
+ * The fork has a different productName, so Electron gives it a separate userData folder.
+ * Import only the original app's YTM session into that folder; leave the original untouched.
+ */
+const migrateOriginalYtmProfile = async (): Promise<boolean> => {
+  if (!app.isPackaged) return true;
+
+  const forkUserData = app.getPath("userData");
+  const originalUserData = path.join(app.getPath("appData"), "YouTube Music Desktop App");
+  if (path.resolve(forkUserData).toLowerCase() === path.resolve(originalUserData).toLowerCase()) return true;
+
+  const migrationMarker = path.join(forkUserData, ".original-ytm-profile-migration");
+  if (await pathExists(migrationMarker)) return true;
+
+  const originalProfile = path.join(originalUserData, "Partitions", "ytmview");
+  if (!(await pathExists(originalProfile))) return true;
+
+  const response = await dialog.showMessageBox({
+    type: "question",
+    title: "Import YouTube Music data?",
+    message: "An existing YouTube Music Desktop App profile was found.",
+    detail:
+      "Copy its YouTube Music session, sign-in, and Better Lyrics settings into this fork? The original profile will stay untouched. The fork will use its own copy. Close the original app before continuing.",
+    buttons: ["Skip", "Copy profile"],
+    defaultId: 0,
+    cancelId: 0
+  });
+
+  if (response.response !== 1) {
+    await fs.writeFile(migrationMarker, "skipped\n", "utf8");
+    return true;
+  }
+
+  const originalAppRunning = await isOriginalAppRunning();
+  if (originalAppRunning !== false) {
+    await dialog.showMessageBox({
+      type: "warning",
+      title: "Close YouTube Music Desktop App first",
+      message: "The original app must be fully closed before its profile can be copied.",
+      detail: "Close it from its tray icon, then start this fork again. No profile data was changed.",
+      buttons: ["OK"]
+    });
+    app.quit();
+    return false;
+  }
+
+  const forkProfile = path.join(forkUserData, "Partitions", "ytmview");
+  const partitionsFolder = path.dirname(forkProfile);
+  const stagingProfile = path.join(partitionsFolder, `ytmview-import-${Date.now()}`);
+  const backupProfile = path.join(partitionsFolder, `ytmview-before-import-${Date.now()}`);
+  const disposableCaches = new Set(["Cache", "Code Cache", "DawnGraphiteCache", "DawnWebGPUCache", "GPUCache"]);
+
+  try {
+    await fs.mkdir(partitionsFolder, { recursive: true });
+    await fs.cp(originalProfile, stagingProfile, {
+      recursive: true,
+      filter: sourcePath => {
+        const relativePath = path.relative(originalProfile, sourcePath);
+        const topLevelEntry = relativePath.split(path.sep)[0];
+        return relativePath === "" || !disposableCaches.has(topLevelEntry);
+      }
+    });
+
+    const hadExistingProfile = await pathExists(forkProfile);
+    if (hadExistingProfile) await fs.rename(forkProfile, backupProfile);
+
+    try {
+      await fs.rename(stagingProfile, forkProfile);
+    } catch (error) {
+      if (hadExistingProfile) await fs.rename(backupProfile, forkProfile);
+      throw error;
+    }
+
+    try {
+      await fs.writeFile(migrationMarker, "copied\n", "utf8");
+    } catch (error) {
+      log.warn("Could not save the original-profile migration marker", error);
+    }
+    log.info("Copied the original YouTube Music session into the fork profile; original data was left untouched");
+    return true;
+  } catch (error) {
+    log.error("Failed to import the original YouTube Music profile", error);
+    await dialog.showMessageBox({
+      type: "error",
+      title: "Could not import YouTube Music data",
+      message: "The original profile could not be copied. The original data was left untouched.",
+      detail: "You can continue with a fresh YouTube Music profile and sign in again.",
+      buttons: ["Continue"]
+    });
+    return true;
+  }
+};
 
 let applicationExited = false;
 let applicationQuitting = false;
@@ -1420,6 +1550,10 @@ const createMainWindow = (): void => {
 // Some APIs can only be used after this event occurs.
 app.on("ready", async () => {
   log.info("Application ready");
+
+  // Electron isolates userData by productName. Import the original YTM profile before
+  // creating the fork's persistent session so returning users keep their signed-in state.
+  if (!(await migrateOriginalYtmProfile())) return;
 
   // Load before creating the YouTube Music view so its document-start scripts are active.
   await loadBetterLyricsExtension();
