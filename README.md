@@ -15,12 +15,12 @@ Better Lyrics preferences are stored locally in the app's persistent YouTube Mus
 
 ## Build and run
 
-The normal YouTube Music Desktop App development setup applies. Use Node.js 20 and Yarn:
+The normal YouTube Music Desktop App development setup applies. Use Node.js LTS and pnpm:
 
 ```sh
 corepack enable
-yarn install
-yarn start
+pnpm install
+pnpm start
 ```
 
 The packaged app includes `vendor/better-lyrics-desktop`. To create a distributable build, use the build instructions from the upstream project and ensure the Better Lyrics assets are present in that directory. See [`vendor/better-lyrics-desktop/README.ytmdesktop.md`](vendor/better-lyrics-desktop/README.ytmdesktop.md) for the bundled extension's source version and desktop changes.
