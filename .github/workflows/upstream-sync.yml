@@ -1,0 +1,138 @@
+---
+# Weekly merge of ytmdesktop/ytmdesktop into this fork.
+# Clean merge: opens (or updates) a pull request after a test build.
+# Conflicts, or upstream changes to workflow files (which GITHUB_TOKEN may not push): the run fails,
+# GitHub emails the owner, and the run summary lists the files to merge by hand.
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+
+env:
+  UPSTREAM_REPO: ytmdesktop/ytmdesktop
+  UPSTREAM_BRANCH: development
+  BASE_BRANCH: development
+  SYNC_BRANCH: sync/upstream
+  GH_TOKEN: ${{ github.token }}
+  # Pin gh to this fork; it would otherwise prefer the "upstream" remote
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Github checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.BASE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Merge upstream
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+
+          behind=$(git rev-list --count HEAD..upstream/$UPSTREAM_BRANCH)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          if [ "$behind" -eq 0 ]; then
+            echo "Already up to date with upstream."
+            echo "result=uptodate" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base=$(git rev-parse HEAD)
+          git switch -c "$SYNC_BRANCH"
+          if ! git merge --no-edit upstream/$UPSTREAM_BRANCH -m "Merge upstream/$UPSTREAM_BRANCH into $BASE_BRANCH"; then
+            git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts.txt"
+            git merge --abort
+            echo "result=conflict" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "$(git log --format= --name-only $base..upstream/$UPSTREAM_BRANCH -- .github/workflows)" ]; then
+            git log --format= --name-only $base..upstream/$UPSTREAM_BRANCH -- .github/workflows | sort -u > "$RUNNER_TEMP/conflicts.txt"
+            echo "result=workflows" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "result=merged" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.merge.outputs.result == 'merged'
+        uses: pnpm/setup@v3
+        with:
+          runtime: node@lts
+          cache: true
+
+      - name: Test build (Linux x64)
+        id: build
+        if: steps.merge.outputs.result == 'merged'
+        continue-on-error: true
+        run: |
+          sudo apt-get install libdbus-1-dev pkg-config -y
+          pnpm install --frozen-lockfile
+          pnpm package --arch x64
+
+      - name: Open or update pull request
+        if: steps.merge.outputs.result == 'merged'
+        env:
+          BEHIND: ${{ steps.merge.outputs.behind }}
+          BUILD: ${{ steps.build.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git push --force origin "$SYNC_BRANCH"
+
+          if [ "$BUILD" = "success" ]; then
+            status="✅ Test build (Linux x64) passed."
+          else
+            status="❌ Test build (Linux x64) failed — check the [workflow run]($RUN_URL) before merging."
+          fi
+          body=$(printf '%s\n\n%s\n\n%s\n\n%s' \
+            "Merges $BEHIND new commit(s) from \`$UPSTREAM_REPO:$UPSTREAM_BRANCH\`." \
+            "$status" \
+            "Before merging, try the build: lyrics shown by Better Lyrics, Settings → Integrations → Translation settings." \
+            "_Opened by the Upstream Sync workflow ([run]($RUN_URL))._")
+
+          pr=$(gh pr list --head "$SYNC_BRANCH" --base "$BASE_BRANCH" --state open --json number --jq '.[0].number')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --body "$body"
+          else
+            gh pr create --head "$SYNC_BRANCH" --base "$BASE_BRANCH" --title "Sync with upstream ytmdesktop" --body "$body"
+          fi
+
+      - name: Report manual merge needed
+        if: steps.merge.outputs.result == 'conflict' || steps.merge.outputs.result == 'workflows'
+        env:
+          RESULT: ${{ steps.merge.outputs.result }}
+          BEHIND: ${{ steps.merge.outputs.behind }}
+        run: |
+          if [ "$RESULT" = "conflict" ]; then
+            reason="The merge has conflicts in these files:"
+          else
+            reason="Upstream changed workflow files, which the workflow token is not allowed to push:"
+          fi
+          {
+            echo "## Upstream sync needs a manual merge"
+            echo
+            echo "\`$UPSTREAM_REPO:$UPSTREAM_BRANCH\` is $BEHIND commit(s) ahead and could not be merged automatically."
+            echo
+            echo "$reason"
+            echo
+            sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/conflicts.txt"
+            echo
+            echo "Merge locally: \`git fetch upstream && git merge upstream/$UPSTREAM_BRANCH\`, resolve, then push."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Upstream sync needs a manual merge (see the run summary)"
+          exit 1
